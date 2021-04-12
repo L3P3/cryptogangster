@@ -1,0 +1,169 @@
+<!doctype html>
+<html>
+	<head>
+		<title>CryptoGanXter</title>
+	</head>
+	<body>
+		<script src="https://l3p3.de/shr/lui.dev.js"></script>
+		<script>
+			const {
+				hook_reducer,
+				node,
+				node_dom,
+			} = lui;
+
+			const alphabet = 'abcdefghijklmnopqrstuvwxyzäöü';
+			const key_count = alphabet.length - 1;
+
+			const alphabet_filter = text => (
+				text
+				.split('')
+				.filter(char =>
+					alphabet.includes(char.toLowerCase())
+				)
+				.join('')
+			)
+
+			const crypt = (text, key) => (
+				text
+				.split('')
+				.map(char =>
+					alphabet.charAt(
+						(alphabet.indexOf(char) + key) % alphabet.length
+					)
+				)
+				.join('')
+			)
+
+			const crypt_case = (text, key) => (
+				text
+				.split('')
+				.map(char => {
+					const char_lower = char.toLowerCase();
+					const upper = char !== char_lower;
+					let index = alphabet.indexOf(char_lower);
+					index += key;
+					index += alphabet.length;
+					index %= alphabet.length;
+					char = alphabet.charAt(index);
+					return (
+						upper
+						?	char.toUpperCase()
+						:	char
+					);
+				})
+				.join('')
+			)
+
+			const CMD_RESET = 0;
+			const CMD_TEXT_SET = 1;
+			const CMD_KEY_SET = 2;
+			const CMD_KEY_GUESS = 3;
+			const CMD_CRYPT = 4;
+
+			const reducer = [
+				// RESET
+				() => ({
+					text: 'HalloWelt',
+					key: 0,
+				}),
+
+				// TEXT_SET
+				(state, value) => ({
+					...state,
+					text: alphabet_filter(value),
+				}),
+
+				// KEY_SET
+				(state, value) => ({
+					...state,
+					key: value,
+				}),
+
+				// KEY_GUESS
+				(state, hint) => {
+					hint = hint.toLowerCase();
+					let key = null;
+					let text_snippet = state.text.substr(0, hint.length).toLowerCase();
+
+					for (let key_test = 0; key_test < key_count; ++key_test) {
+						if (crypt(hint, key_test) !== text_snippet) continue;
+						key = key_test;
+					}
+
+					return (
+						key === null
+						?	state
+						:	{
+								...state,
+								key,
+							}
+					);
+				},
+
+				// CRYPT
+				(state, direction) => ({
+					...state,
+					text: crypt_case(
+						state.text,
+						direction ? state.key : -state.key
+					),
+				}),
+			];
+
+			lui.init(() => {
+				const [state, dispatch] = hook_reducer(reducer);
+
+				return [
+					{},
+					[
+						node_dom('h1[innerText=CryptoGanXter]'),
+						node_dom('textarea[rows=10][cols=50]', {
+								onchange: event => (
+									dispatch(CMD_TEXT_SET, event.target.value)
+								),
+								value: state.text,
+							}),
+						node_dom('p', null, [
+							node_dom('label[innerText=Schlüssel: ]'),
+							node_dom(`input[type=number][min=0][max=${key_count}]`, {
+								onchange: event => (
+									dispatch(
+										CMD_KEY_SET,
+										Math.min(
+											key_count,
+											Math.max(
+												0,
+												Number(event.target.value)
+											)
+										)
+									)
+								),
+								value: state.key,
+							}),
+						]),
+						node_dom('p', null, [
+							node_dom('button[innerText=VERschlüsseln]', {
+								onclick: () => {
+									dispatch(CMD_CRYPT, true);
+								}
+							}),
+							node_dom('button[innerText=ENTschlüsseln]', {
+								onclick: () => {
+									dispatch(CMD_CRYPT, false);
+								}
+							}),
+							node_dom('button[innerText=Schlüssel ermitteln]', {
+								onclick: () => {
+									const hint = prompt('Geben Sie die ersten Zeichen ein!', '');
+
+									hint && dispatch(CMD_KEY_GUESS, hint);
+								}
+							}),
+						]),
+					],
+				];
+			});
+		</script>
+	</body>
+</html>
