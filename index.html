@@ -1,93 +1,132 @@
 <!doctype html>
 <html>
 	<head>
+		<meta charset="utf-8">
 		<title>CryptoGanXter</title>
+		<script src="https://cdn.jsdelivr.net/gh/L3P3/lui@dist/lui.dev.js"></script>
 	</head>
 	<body>
-		<script src="https://l3p3.de/shr/lui.dev.js"></script>
 		<script>
 			const {
 				hook_reducer,
-				node,
 				node_dom,
 			} = lui;
 
-			const alphabet = 'abcdefghijklmnopqrstuvwxyzäöü';
-			const key_count = alphabet.length - 1;
-
-			const alphabet_filter = text => (
-				text
-				.split('')
-				.filter(char =>
-					alphabet.includes(char.toLowerCase())
-				)
-				.join('')
-			)
-
-			const crypt = (text, key) => (
-				text
-				.split('')
-				.map(char =>
-					alphabet.charAt(
-						(alphabet.indexOf(char) + key) % alphabet.length
-					)
-				)
-				.join('')
-			)
-
-			const crypt_case = (text, key) => (
-				text
-				.split('')
-				.map(char => {
-					const char_lower = char.toLowerCase();
-					const upper = char !== char_lower;
-					let index = alphabet.indexOf(char_lower);
-					index += key;
-					index += alphabet.length;
-					index %= alphabet.length;
-					char = alphabet.charAt(index);
-					return (
-						upper
-						?	char.toUpperCase()
-						:	char
-					);
-				})
-				.join('')
-			)
-
 			const CMD_RESET = 0;
-			const CMD_TEXT_SET = 1;
+			const CMD_ALPHABET_SET = 1;
 			const CMD_KEY_SET = 2;
-			const CMD_KEY_GUESS = 3;
-			const CMD_CRYPT = 4;
+			const CMD_TEXT_SET = 3;
+			const CMD_TEXT_FILTER = 4;
+			const CMD_CRYPT = 5;
+			const CMD_KEY_GUESS_SEARCH = 6;
+			const CMD_KEY_GUESS_INDEX = 7;
+			const CMD_KEY_GUESS_RANK = 8;
 
 			const reducer = [
 				// RESET
 				() => ({
-					text: 'HalloWelt',
-					key: 0,
+					alphabet: 'abcdefghijklmnopqrstuvwxyz',
+					key: 1,
+					text: 'Hallo, Welt!',
 				}),
 
-				// TEXT_SET
+				// ALPHABET_SET
 				(state, value) => ({
 					...state,
-					text: alphabet_filter(value),
+					alphabet: (
+						Array.from(new Set(
+							value
+							.toLowerCase()
+							.split('')
+						))
+						.join('')
+					),
 				}),
 
 				// KEY_SET
 				(state, value) => ({
 					...state,
-					key: value,
+					key: (
+						isNaN(value) ? 0 :
+						Math.floor(
+							Math.min(
+								state.alphabet.length - 1,
+								Math.max(
+									0,
+									Number(value)
+								)
+							)
+						)
+					),
 				}),
 
-				// KEY_GUESS
-				(state, hint) => {
-					hint = hint.toLowerCase();
-					let key = null;
-					let text_snippet = state.text.substr(0, hint.length).toLowerCase();
+				// TEXT_SET
+				(state, value) => ({
+					...state,
+					text: value,
+				}),
 
-					for (let key_test = 0; key_test < key_count; ++key_test) {
-						if (crypt(hint, key_test) !== text_snippet) continue;
+				// TEXT_FILTER
+				(state) => ({
+					...state,
+					text: (
+						state.text
+						.split('')
+						.filter(char =>
+							state.alphabet.includes(char.toLowerCase())
+						)
+						.join('')
+					),
+				}),
+
+				// CRYPT
+				(state, direction) => ({
+					...state,
+					text: (
+						state.text
+						.split('')
+						.map(char => {
+							const char_lower = char.toLowerCase();
+							const upper = char !== char_lower;
+							let index = state.alphabet.indexOf(char_lower);
+							if (index < 0) return char;
+							index += direction ? state.key : -state.key;
+							index += state.alphabet.length;
+							index %= state.alphabet.length;
+							char = state.alphabet.charAt(index);
+							return (
+								upper
+								?	char.toUpperCase()
+								:	char
+							);
+						})
+						.join('')
+					),
+				}),
+
+				// KEY_GUESS_SEARCH
+				(state, hint) => {// TODO can be optimized a lot
+					hint = hint.split('');
+					const text = state.text.toLowerCase();
+					let key = null;
+					for (let key_test = 0; key_test < state.alphabet.length - 1; ++key_test) {
+						if (
+							!text.includes(
+								hint
+								.map(char => {
+									const index = state.alphabet.indexOf(char);
+									return (
+										index !== -1
+										?	state.alphabet.charAt(
+												(index + key_test)
+												% state.alphabet.length
+											)
+										:	char
+									);
+								})
+								.join('')
+							)
+						) continue;
 						key = key_test;
 					}
 
@@ -101,14 +140,74 @@
 					);
 				},
 
-				// CRYPT
-				(state, direction) => ({
-					...state,
-					text: crypt_case(
-						state.text,
-						direction ? state.key : -state.key
-					),
-				}),
+				// KEY_GUESS_INDEX
+				(state, [index, char]) => {
+					if (Math.abs(index) >= state.text.length) return state;
+					const index_text = (
+						state.alphabet.indexOf(
+							state.text
+							.charAt(
+								index >= 0 ? index :
+								state.text.length + index
+							)
+							.toLowerCase()
+						)
+					);
+					const index_char = state.alphabet.indexOf(char);
+					return {
+						...state,
+						key: (
+							(index_text === -1 || index_char === -1) ? 0 :
+							(
+								index_text - index_char + state.alphabet.length
+							) % state.alphabet.length
+						),
+					};
+				},
+
+				// KEY_GUESS_RANK
+				(state, [rank, char]) => {
+					const index_char = state.alphabet.indexOf(char);
+					if (
+						index_char === -1 ||
+						rank > state.alphabet.length - 1
+					) return state;
+					const text_splitted = state.text.toLowerCase().split('');
+					const counts = (
+						state.alphabet
+						.split('')
+						.map(char => [char,
+							text_splitted
+							.filter(char_text => char_text === char)
+							.length
+						])
+						.sort((a, b) => b[1] - a[1])
+					);
+					alert('Häufigste Zeichen:\n' + (
+						counts
+						.slice(0, 10)
+						.filter(entry => entry[1])
+						.map((entry, index) => `${
+							entry[0]
+						} : ${
+							entry[1]
+						}${
+							index !== rank ? '' :
+							' <- ' + char
+						}`)
+						.join('\n')
+					));
+					return {
+						...state,
+						key: (
+							(
+								state.alphabet.indexOf(counts[rank][0])
+								- index_char
+								+ state.alphabet.length
+							) % state.alphabet.length
+						),
+					};
+				},
 			];
 
 			lui.init(() => {
@@ -119,46 +218,114 @@
 					[
 						node_dom('h1[innerText=CryptoGanXter]'),
 						node_dom('textarea[rows=10][cols=50]', {
-								onchange: event => (
-									dispatch(CMD_TEXT_SET, event.target.value)
-								),
-								value: state.text,
-							}),
+							onchange: event => {
+								dispatch(CMD_TEXT_SET, event.target.value);
+							},
+							value: state.text,
+						}),
 						node_dom('p', null, [
 							node_dom('label[innerText=Schlüssel: ]'),
-							node_dom(`input[type=number][min=0][max=${key_count}]`, {
-								onchange: event => (
-									dispatch(
-										CMD_KEY_SET,
-										Math.min(
-											key_count,
-											Math.max(
-												0,
-												Number(event.target.value)
-											)
-										)
-									)
-								),
+							node_dom(`input[type=number][min=0][step=1][title=Anzahl an Verschiebungsschritten]`, {
+								max: state.alphabet.length - 1,
+								onchange: event => {
+									dispatch(CMD_KEY_SET, Number(event.target.value));
+								},
 								value: state.key,
 							}),
 						]),
 						node_dom('p', null, [
-							node_dom('button[innerText=VERschlüsseln]', {
+							node_dom('label[innerText=Zeichen: ]'),
+							node_dom('input[title=Alle zu übersetzende Zeichen]', {
+								onchange: event => {
+									dispatch(CMD_ALPHABET_SET, event.target.value);
+								},
+								value: state.alphabet,
+							}),
+						]),
+						node_dom('p', null, [
+							node_dom('button[innerText=VERschlüsseln][title=Schlüssel hinzufügen]', {
 								onclick: () => {
 									dispatch(CMD_CRYPT, true);
-								}
+								},
 							}),
-							node_dom('button[innerText=ENTschlüsseln]', {
+							node_dom('button[innerText=ENTschlüsseln][title=Schlüssel abziehen]', {
 								onclick: () => {
 									dispatch(CMD_CRYPT, false);
-								}
+								},
 							}),
-							node_dom('button[innerText=Schlüssel ermitteln]', {
+							node_dom('button[innerText=Filtern][title=Text auf die oben aufgelisteten Zeichen beschränken]', {
 								onclick: () => {
-									const hint = prompt('Geben Sie die ersten Zeichen ein!', '');
+									dispatch(CMD_TEXT_FILTER);
+								},
+							}),
+						]),
+						node_dom('p[innerText=Knacken: ]', null, [
+							node_dom('button[innerText=Enthaltene Zeichenfolge][title=Probiert alle Schlüssel durch, bis ein angegebener Text gefunden wird]', {
+								onclick: () => {
+									const hint = prompt('Enthaltene Zeichenfolge:', '');
 
-									hint && dispatch(CMD_KEY_GUESS, hint);
-								}
+									hint && dispatch(CMD_KEY_GUESS_SEARCH, hint.toLowerCase());
+								},
+							}),
+							node_dom('button[innerText=Bekanntes Zeichen][title=Errechnet den Schlüssel anhand eines bekannten Zeichens, Umschalten drücken zum Angeben der Position]', {
+								onclick: event => {
+									let index = 0;
+									if (event.shiftKey) {
+										index = prompt('Position des Zeichens:', '1');
+										if (
+											!index ||
+											!Number.isSafeInteger(index = Number(index)) ||
+											index === 0
+										) return;
+										if (index > 0)  --index;
+									}
+
+									const char = prompt(
+										`Das ${
+											index === 0 ? 'erste' :
+											index === -1 ? 'letzte' :
+											index < 0 ? -index + '-letzte' :
+											(index + 1) + '.'
+										} Zeichen:`,
+										''
+									);
+
+									if (!char || char.length > 1) return;
+
+									dispatch(CMD_KEY_GUESS_INDEX, [
+										index,
+										char.toLowerCase()
+									]);
+								},
+							}),
+							node_dom('button[innerText=Häufigstes Zeichen][title=Zählt die Vorkommnisse der Zeichen und errechnet daran den Schlüssel, Umschalten drücken zum Angeben des Ranges]', {
+								onclick: event => {
+									let rank = 0;
+									if (event.shiftKey) {
+										rank = prompt('Rang des Zeichens:', '1');
+										if (
+											!rank ||
+											!Number.isSafeInteger(rank = Number(rank)) ||
+											rank < 1
+										) return;
+										--rank;
+									}
+
+									const char = prompt(
+										`Das ${
+											rank === 0 ? '' :
+											(rank + 1) + '-'
+										}häufigste Zeichen:`,
+										rank === 0 ? 'e' : ''
+									);
+
+									if (!char || char.length > 1) return;
+
+									dispatch(CMD_KEY_GUESS_RANK, [
+										rank,
+										char.toLowerCase()
+									]);
+								},
 							}),
 						]),
 					],
